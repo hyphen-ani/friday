@@ -1,0 +1,19 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio.workspace = true
+anyhow.workspace = true
+
+clap = { version = "4", features = ["derive"] }
+
+ratatui = "0.29"
+crossterm = "0.28"
+
+futures = "0.3"
+
+runtime = { path = "../runtime" }
+shared = { path = "../shared" }
+providers = { path = "../providers" }
