@@ -128,7 +128,7 @@ pub async fn handle_events(app: &mut App, runtime: Arc<Runtime>) -> anyhow::Resu
     }
 
             KeyCode::Esc => {
-                app.should_quit = true;
+                app.should_quit = false;
             }
 
             _ => {}

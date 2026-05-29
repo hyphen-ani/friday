@@ -5,6 +5,8 @@ use futures::{
     Stream, stream, StreamExt
 };
 
+use eventsource_stream::Eventsource;
+
 use bytes::Bytes;
 
 use serde_json::Value;
@@ -56,60 +58,6 @@ struct Choice {
 #[derive(Debug, Deserialize)]
 struct AssistantMessage {
     content: String,
-}
-
-fn parse_sse_chunk(
-    bytes: Bytes,
-) -> Option<Result<String>> {
-
-    let text =
-        String::from_utf8_lossy(
-            &bytes
-        );
-
-    for line in text.lines() {
-
-        if !line.starts_with(
-            "data: "
-        ) {
-            continue;
-        }
-
-        let json =
-            line.trim_start_matches(
-                "data: "
-            );
-
-        if json == "[DONE]" {
-            continue;
-        }
-
-        if let Ok(value) =
-            serde_json::from_str::<Value>(
-                json
-            )
-        {
-
-            let token = value
-                .pointer(
-                    "/choices/0/delta/content"
-                )
-                .and_then(
-                    |v| v.as_str()
-                )
-                .unwrap_or("")
-                .to_string();
-
-            if !token.is_empty() {
-
-                return Some(
-                    Ok(token)
-                );
-            }
-        }
-    }
-
-    None
 }
 
 impl OpenAIProvider {
@@ -203,26 +151,45 @@ impl ModelProvider for OpenAIProvider {
         .send()
         .await?;
 
-    let byte_stream =
-        response.bytes_stream();
+    let event_stream =
+        response.bytes_stream().eventsource();
 
-    let stream =
-        byte_stream.filter_map(
-            |chunk| async move {
+    let stream = event_stream.filter_map(
+    |event| async move {
 
-                match chunk {
+        match event {
 
-                    Ok(bytes) => {
+            Ok(ev) => {
 
-                        parse_sse_chunk(
-                            bytes
-                        )
-                    }
+                let json = ev.data;
 
-                    Err(_) => None,
+                if json == "[DONE]" {
+                    return None;
                 }
+
+                if let Ok(value) =
+                    serde_json::from_str::<Value>(&json)
+                {
+
+                    if let Some(token) = value
+                        .pointer("/choices/0/delta/content")
+                        .and_then(|v| v.as_str())
+                    {
+                        return Some(
+                            Ok(token.to_string())
+                        );
+                    }
+                }
+
+                None
             }
-        );
+
+            Err(err) => Some(
+                Err(anyhow::anyhow!(err))
+            ),
+        }
+    }
+);
 
     Ok(Box::pin(stream))
 }

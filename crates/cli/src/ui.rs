@@ -16,236 +16,145 @@ pub fn render(
     frame: &mut Frame,
     app: &App,
 ) {
-
-    
-    // LAYOUT
-    
-
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // logo
-            Constraint::Length(1), // path
+            Constraint::Length(2), // logo
             Constraint::Min(1),    // messages
-            Constraint::Length(1), // separator
             Constraint::Length(3), // input
-            Constraint::Length(1), // separator
             Constraint::Length(1), // status
         ])
         .split(frame.area());
 
-    
-    // COLORFUL LOGO
-    
+    // ========================================
+    // LOGO
+    // ========================================
 
     let logo = Paragraph::new(
-    Line::from(vec![
-
-        Span::styled(
-            "Friday",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD)
-        ),
-
-        Span::styled(
-            " — AI Runtime",
-            Style::default()
-                .fg(Color::DarkGray)
-        ),
-    ])
-    )
-    .alignment(Alignment::Left);
+        Line::from(vec![
+            Span::styled(
+                "✦ ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Friday",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+    );
 
     frame.render_widget(logo, layout[0]);
 
-    
-    // PROJECT INFO
-    
-
-    let info = Paragraph::new(
-        "~/projects/friday • main"
-    )
-    .style(
-        Style::default()
-            .fg(Color::DarkGray)
-    );
-
-    frame.render_widget(info, layout[1]);
-
-    
+    // ========================================
     // MESSAGES
+    // ========================================
 
-let lines: Vec<Line> = app
-    .messages
-    .iter()
-    .map(|message| {
+    let mut lines: Vec<Line> = vec![];
 
+    for message in &app.messages {
         match message.role {
-
-            
-            // USER
-            
             MessageRole::User => {
-
-                Line::from(vec![
-
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
                     Span::styled(
-                        "You ",
+                        "● You",
                         Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD)
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
                     ),
-
-                    Span::styled(
-                        "› ",
-                        Style::default()
-                            .fg(Color::DarkGray)
-                    ),
-
-                    Span::raw(&message.content),
-                ])
+                ]));
+                lines.push(Line::from(message.content.clone()));
             }
-
-            
-            // ASSISTANT
-            
 
             MessageRole::Assistant => {
-
-                Line::from(vec![
-
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
                     Span::styled(
-                        "Friday ",
+                        "✦ Friday",
                         Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD)
+                            .fg(Color::LightBlue)
+                            .add_modifier(Modifier::BOLD),
                     ),
-
-                    Span::styled(
-                        "› ",
-                        Style::default()
-                            .fg(Color::DarkGray)
-                    ),
-
-                    Span::raw(&message.content),
-                ])
+                ]));
+                lines.push(Line::from(message.content.clone()));
             }
-
-            
-            // SYSTEM
-            
 
             MessageRole::System => {
-
-                Line::from(vec![
-
+                lines.push(Line::from(vec![
                     Span::styled(
                         &message.content,
-                        Style::default()
-                            .fg(Color::DarkGray)
+                        Style::default().fg(Color::DarkGray),
                     ),
-                ])
+                ]));
             }
         }
-    })
-    .collect();
+    }
 
-    let mut all_lines = lines;
-
-if let Some(streaming) =
-    &app.streaming_message {
-
-    all_lines.push(
-
-        Line::from(vec![
-
+    if let Some(streaming) = &app.streaming_message {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
             Span::styled(
-                "Friday ",
+                "✦ Friday",
                 Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                    .fg(Color::LightBlue)
+                    .add_modifier(Modifier::BOLD),
             ),
+        ]));
+        lines.push(Line::from(streaming.clone()));
+    }
 
-            Span::styled(
-                "› ",
-                Style::default()
-                    .fg(Color::DarkGray)
-            ),
+    let messages = Paragraph::new(lines)
+        .wrap(Wrap { trim: false });
 
-            Span::raw(streaming),
-        ])
-    );
-}
-
-let messages = Paragraph::new(all_lines)
-    .wrap(Wrap { trim: true });
-
-frame.render_widget(
-    messages,
-    layout[2],
-);
-
-    
-    // SEPARATOR
-    
-
-    let separator = Paragraph::new(
-        "─".repeat(frame.area().width as usize)
-    )
-    .style(
-        Style::default()
-            .fg(Color::DarkGray)
+    frame.render_widget(
+        messages,
+        layout[1],
     );
 
-    frame.render_widget(separator.clone(), layout[3]);
-
-    
-    // INPUT
-    
+    // ========================================
+    // INPUT BAR
+    // ========================================
 
     let input_text = if app.input.is_empty() {
-
         Line::from(vec![
             Span::styled(
-                "❯ ",
+                "Ask anything or type /",
                 Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
-            ),
-
-            Span::styled(
-                "Ask anything or type / for commands",
-                Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(Color::DarkGray),
             ),
         ])
-
     } else {
-
         Line::from(vec![
-            Span::styled(
-                "❯ ",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
-            ),
-
             Span::styled(
                 &app.input,
                 Style::default()
-                    .fg(Color::White)
+                    .fg(Color::White),
             ),
         ])
     };
 
-    let input = Paragraph::new(input_text);
+    let input = Paragraph::new(input_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(
+                    Style::default()
+                        .fg(Color::DarkGray),
+                ),
+        );
 
-    frame.render_widget(input, layout[4]);
+    frame.render_widget(
+        input,
+        layout[2],
+    );
 
-    
-    // COMMAND SUGGESTIONS
-    
+    // ========================================
+    // COMMAND PALETTE
+    // ========================================
 
     if !app.filtered_commands.is_empty() {
 
@@ -261,10 +170,10 @@ frame.render_widget(
                         Span::styled(
                             format!("› {}", cmd),
                             Style::default()
-                                .bg(Color::White)
-                                .fg(Color::Black)
-                                .add_modifier(Modifier::BOLD)
-                        )
+                                .bg(Color::DarkGray)
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                     )
 
                 } else {
@@ -273,63 +182,77 @@ frame.render_widget(
                         Span::styled(
                             format!("  {}", cmd),
                             Style::default()
-                                .fg(Color::DarkGray)
-                        )
+                                .fg(Color::Gray),
+                        ),
                     )
                 }
             })
             .collect();
 
-        let suggestion_box = Paragraph::new(
-            suggestions
-        );
-
-        let popup_height = app.filtered_commands.len().min(16) as u16;
+        let popup_height =
+            app.filtered_commands
+                .len()
+                .min(8) as u16 + 2;
 
         let popup_y =
-            layout[4]
+            layout[2]
                 .y
-                .saturating_sub(popup_height);
+                .saturating_sub(
+                    popup_height,
+                );
 
-        let area = Rect {
-            x: 3,
-            y: popup_y,
-            width: 80,
-            height: popup_height,
-        };
+        let popup = Paragraph::new(
+            suggestions,
+        )
+        .block(
+            Block::default()
+                .title(" friday commands ")
+                .borders(Borders::ALL)
+                .border_style(
+                    Style::default()
+                        .fg(Color::DarkGray),
+                ),
+        );
 
         frame.render_widget(
-            suggestion_box,
-            area,
+            popup,
+            Rect {
+                x: 2,
+                y: popup_y,
+                width: 40,
+                height: popup_height,
+            },
         );
     }
 
-    
-    // SECOND SEPARATOR
-    
-
-    frame.render_widget(separator, layout[5]);
-
-    
-    // STATUS BAR
-    
+    // ========================================
+    // STATUS
+    // ========================================
 
     let status = Paragraph::new(
-        "● connected    model: openai-40-mini    phase: explore"
+        "openai-4o-mini • streaming enabled",
     )
     .style(
         Style::default()
-            .fg(Color::DarkGray)
+            .fg(Color::DarkGray),
+    )
+    .alignment(
+        Alignment::Right,
     );
 
-    frame.render_widget(status, layout[6]);
+    frame.render_widget(
+        status,
+        layout[3],
+    );
 
-    
+    // ========================================
     // CURSOR
-    
+    // ========================================
 
     frame.set_cursor_position((
-        layout[4].x + app.input.len() as u16 + 2,
-        layout[4].y,
+        layout[2].x
+            + app.input.len() as u16
+            + 1,
+        layout[2].y + 1,
     ));
 }

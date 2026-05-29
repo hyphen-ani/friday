@@ -13,5 +13,6 @@ anyhow.workspace = true
 futures.workspace = true
 
 bytes = "1"
+eventsource-stream = "0.2"
 
 shared = { path = "../shared" }
