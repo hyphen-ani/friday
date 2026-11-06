@@ -1,3 +1,4 @@
+use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use providers::types::ProviderMessage;
 use crate::runtime_events::RuntimeEvent;
@@ -71,19 +72,21 @@ pub struct App {
     pub confirm_quit: bool,
     pub mode: Mode,
     pub welcome_dismissed: bool,
-    // Scroll state: offset = lines from bottom (0 = following latest content)
     pub scroll_offset: usize,
-    // Full provider-format history including tool call messages
     pub provider_history: Vec<ProviderMessage>,
-    // Indices into COMMANDS that match the current input prefix
     pub filtered_commands: Vec<usize>,
     pub selected_command: usize,
+    // Shared model string — same Arc is held by the provider
+    pub current_model: Arc<RwLock<String>>,
+    // Model picker state
+    pub model_picker_open: bool,
+    pub model_picker_selected: usize,
     pub event_tx: UnboundedSender<RuntimeEvent>,
     pub event_rx: UnboundedReceiver<RuntimeEvent>,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(current_model: Arc<RwLock<String>>) -> Self {
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
         Self {
@@ -103,6 +106,9 @@ impl App {
             provider_history: vec![],
             filtered_commands: vec![],
             selected_command: 0,
+            current_model,
+            model_picker_open: false,
+            model_picker_selected: 0,
             event_tx,
             event_rx,
         }

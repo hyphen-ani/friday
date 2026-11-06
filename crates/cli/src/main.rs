@@ -3,9 +3,10 @@ mod ui;
 mod events;
 mod runtime_events;
 mod markdown;
+mod models;
 
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use app::App;
 use runtime::Runtime;
 use providers::openai::OpenAIProvider;
@@ -35,9 +36,10 @@ async fn main() -> anyhow::Result<()> {
         std::process::exit(1);
     });
 
-    let mut provider = OpenAIProvider::new(api_key);
-    provider.model = cfg.model.clone();
+    // Shared model string — app and provider both hold a clone of this Arc
+    let current_model: Arc<RwLock<String>> = Arc::new(RwLock::new(cfg.model.clone()));
 
+    let provider = OpenAIProvider::new(api_key, Arc::clone(&current_model));
     let runtime = Arc::new(Runtime::new(Box::new(provider)));
 
     enable_raw_mode()?;
@@ -46,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let mut app = App::new();
+    let mut app = App::new(Arc::clone(&current_model));
 
     loop {
         app.process_runtime_events();

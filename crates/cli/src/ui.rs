@@ -5,6 +5,7 @@ use ratatui::{
 };
 
 use crate::app::{App, MessageRole, COMMANDS};
+use crate::models::MODELS;
 
 const ACCENT: Color = Color::Rgb(163, 230, 53);
 const MUTED:  Color = Color::DarkGray;
@@ -39,6 +40,10 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_command_palette(frame, app, layout[3]);
     render_hints(frame, app, layout[4]);
 
+    if app.model_picker_open {
+        render_model_picker(frame, app, layout[3]);
+    }
+
     if app.confirm_quit {
         render_quit_confirm(frame, area);
     }
@@ -56,7 +61,12 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         Span::styled("  v0.1.0", Style::default().fg(DIM)),
     ]);
 
-    let right_text = format!("gpt-4o-mini  ◆ {}  ", app.mode.label());
+    let model_id = app.current_model.read().unwrap().clone();
+    let model_label = MODELS.iter()
+        .find(|m| m.id == model_id)
+        .map(|m| m.label)
+        .unwrap_or(&model_id);
+    let right_text = format!("{}  ◆ {}  ", model_label, app.mode.label());
     let right = Paragraph::new(Line::from(Span::styled(right_text, Style::default().fg(MUTED))))
         .alignment(Alignment::Right);
 
@@ -339,6 +349,73 @@ fn render_hints(frame: &mut Frame, app: &App, area: Rect) {
     ]);
 
     frame.render_widget(Paragraph::new(hints), area);
+}
+
+fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
+    const ID_COL: usize  = 30;
+    const PRV_COL: usize = 10;
+
+    let current_id = app.current_model.read().unwrap().clone();
+
+    // Group header rows + model rows into a flat list, tracking which indices are selectable
+    let mut rows: Vec<Line> = vec![];
+    let mut last_provider = "";
+
+    for (i, m) in MODELS.iter().enumerate() {
+        if m.provider != last_provider {
+            if !rows.is_empty() {
+                rows.push(Line::from(""));
+            }
+            rows.push(Line::from(Span::styled(
+                format!("  {}", m.provider),
+                Style::default().fg(DIM).add_modifier(Modifier::BOLD),
+            )));
+            last_provider = m.provider;
+        }
+
+        let is_selected = i == app.model_picker_selected;
+        let is_active   = m.id == current_id;
+
+        let marker = if is_active { "✦ " } else if is_selected { "› " } else { "  " };
+        let id_padded  = format!("{:<width$}", m.id,    width = ID_COL);
+        let prv_padded = format!("{:<width$}", m.label, width = PRV_COL);
+
+        let row = if is_selected {
+            Line::from(vec![
+                Span::styled(marker,     Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled(id_padded,  Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled(prv_padded, Style::default().fg(TEXT)),
+            ])
+        } else if is_active {
+            Line::from(vec![
+                Span::styled(marker,     Style::default().fg(ACCENT)),
+                Span::styled(id_padded,  Style::default().fg(TEXT)),
+                Span::styled(prv_padded, Style::default().fg(MUTED)),
+            ])
+        } else {
+            Line::from(vec![
+                Span::raw(marker),
+                Span::styled(id_padded,  Style::default().fg(MUTED)),
+                Span::styled(prv_padded, Style::default().fg(DIM)),
+            ])
+        };
+        rows.push(row);
+    }
+
+    let popup_height = (rows.len().min(16) as u16) + 2;
+    let popup_y = input_area.y.saturating_sub(popup_height);
+    let popup_width = 56u16.min(input_area.width.saturating_sub(2));
+
+    frame.render_widget(
+        Paragraph::new(rows).block(
+            Block::default()
+                .title(Span::styled(" switch model ", Style::default().fg(MUTED)))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(ACCENT)),
+        ),
+        Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height },
+    );
 }
 
 fn render_quit_confirm(frame: &mut Frame, area: Rect) {

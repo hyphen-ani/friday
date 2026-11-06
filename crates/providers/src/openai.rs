@@ -6,7 +6,7 @@ use futures::{Stream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, pin::Pin};
+use std::{collections::HashMap, pin::Pin, sync::{Arc, RwLock}};
 
 use crate::{
     ModelProvider,
@@ -16,16 +16,16 @@ use crate::{
 pub struct OpenAIProvider {
     pub api_key: String,
     pub client: Client,
-    pub model: String,
+    pub model: Arc<RwLock<String>>,
     pub base_url: String,
 }
 
 impl OpenAIProvider {
-    pub fn new(api_key: String) -> Self {
+    pub fn new(api_key: String, model: Arc<RwLock<String>>) -> Self {
         Self {
             api_key,
             client: Client::new(),
-            model: "gpt-4o-mini".to_string(),
+            model,
             base_url: "https://api.openai.com/v1".to_string(),
         }
     }
@@ -156,8 +156,9 @@ impl ModelProvider for OpenAIProvider {
             },
         }).collect();
 
+        let model_id = self.model.read().unwrap().clone();
         let body = ChatRequest {
-            model: &self.model,
+            model: &model_id,
             messages: req_messages,
             stream: true,
             tools: req_tools,

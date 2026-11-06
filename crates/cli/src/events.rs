@@ -4,6 +4,7 @@ use runtime::Runtime;
 use std::time::Duration;
 use providers::types::ProviderMessage;
 use crate::app::{App, ChatMessage, MessageRole, COMMANDS};
+use crate::models::MODELS;
 
 pub async fn handle_events(app: &mut App, runtime: Arc<Runtime>) -> anyhow::Result<()> {
     if !event::poll(Duration::from_millis(16))? {
@@ -19,6 +20,42 @@ pub async fn handle_events(app: &mut App, runtime: Arc<Runtime>) -> anyhow::Resu
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => app.should_quit = true,
             _ => app.confirm_quit = false,
+        }
+        return Ok(());
+    }
+
+    // Model picker navigation
+    if app.model_picker_open {
+        match key.code {
+            KeyCode::Esc => {
+                app.model_picker_open = false;
+            }
+            KeyCode::Up => {
+                if app.model_picker_selected > 0 {
+                    app.model_picker_selected -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if app.model_picker_selected + 1 < MODELS.len() {
+                    app.model_picker_selected += 1;
+                }
+            }
+            KeyCode::Enter => {
+                let selected = &MODELS[app.model_picker_selected];
+                // Update shared model — provider picks it up on next call
+                *app.current_model.write().unwrap() = selected.id.to_string();
+                // Persist to config.toml
+                if let Ok(mut cfg) = config::Config::load() {
+                    cfg.model = selected.id.to_string();
+                    cfg.save().ok();
+                }
+                app.messages.push(ChatMessage {
+                    role: MessageRole::System,
+                    content: format!("Switched to {}", selected.id),
+                });
+                app.model_picker_open = false;
+            }
+            _ => {}
         }
         return Ok(());
     }
@@ -118,6 +155,14 @@ pub async fn handle_events(app: &mut App, runtime: Arc<Runtime>) -> anyhow::Resu
                         .take_while(|m| matches!(m.role, MessageRole::System))
                         .count();
                     app.messages.truncate(boot_end);
+                }
+
+                "/model" => {
+                    app.model_picker_open = true;
+                    app.model_picker_selected = {
+                        let current = app.current_model.read().unwrap().clone();
+                        MODELS.iter().position(|m| m.id == current).unwrap_or(0)
+                    };
                 }
 
                 "/tools" => {

@@ -1,19 +1,46 @@
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use std::sync::OnceLock;
+
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::prelude::*;
 use ratatui::style::{Color, Modifier, Style};
+use syntect::{
+    easy::HighlightLines,
+    highlighting::{Theme, ThemeSet},
+    parsing::SyntaxSet,
+    util::LinesWithEndings,
+};
 
-const ACCENT: Color = Color::Rgb(163, 230, 53);
-const TEXT:   Color = Color::White;
-const DIM:    Color = Color::Rgb(100, 100, 100);
+const ACCENT:  Color = Color::Rgb(163, 230, 53);
+const TEXT:    Color = Color::White;
+const DIM:     Color = Color::Rgb(100, 100, 100);
 const CODE_BG: Color = Color::Rgb(28, 28, 28);
+
+static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
+static THEME: OnceLock<Theme> = OnceLock::new();
+
+fn syntax_set() -> &'static SyntaxSet {
+    SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+fn theme() -> &'static Theme {
+    THEME.get_or_init(|| {
+        let mut ts = ThemeSet::load_defaults();
+        ts.themes
+            .remove("base16-ocean.dark")
+            .expect("base16-ocean.dark is a built-in syntect theme")
+    })
+}
 
 pub fn to_lines(text: &str) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut current_spans: Vec<Span<'static>> = Vec::new();
 
     let mut in_code_block = false;
+    let mut code_lang     = String::new();
+    let mut pending_code  = String::new();
+
     let mut in_strong = false;
-    let mut in_em = false;
+    let mut in_em     = false;
     let mut heading_level: Option<HeadingLevel> = None;
 
     let parser = Parser::new_ext(text, Options::empty());
@@ -21,13 +48,23 @@ pub fn to_lines(text: &str) -> Vec<Line<'static>> {
     for event in parser {
         match event {
             // ── Code blocks ──────────────────────────────────────────────────
-            Event::Start(Tag::CodeBlock(_)) => {
+            Event::Start(Tag::CodeBlock(kind)) => {
                 flush(&mut lines, &mut current_spans);
                 in_code_block = true;
+                code_lang = match kind {
+                    CodeBlockKind::Fenced(lang) => lang.to_string(),
+                    CodeBlockKind::Indented     => String::new(),
+                };
+                pending_code.clear();
             }
             Event::End(TagEnd::CodeBlock) => {
-                in_code_block = false;
+                // Trim the trailing newline pulldown-cmark always appends
+                let code = pending_code.trim_end_matches('\n');
+                lines.extend(highlight_block(code, &code_lang));
                 lines.push(Line::from(""));
+                in_code_block = false;
+                code_lang.clear();
+                pending_code.clear();
             }
 
             // ── Inline formatting ─────────────────────────────────────────────
@@ -86,12 +123,7 @@ pub fn to_lines(text: &str) -> Vec<Line<'static>> {
             // ── Text ──────────────────────────────────────────────────────────
             Event::Text(text) => {
                 if in_code_block {
-                    for line in text.lines() {
-                        lines.push(Line::from(Span::styled(
-                            format!("  {}", line),
-                            Style::default().fg(TEXT).bg(CODE_BG),
-                        )));
-                    }
+                    pending_code.push_str(&text);
                 } else {
                     let mut style = Style::default();
                     style = style.fg(if heading_level.is_some() { ACCENT } else { TEXT });
@@ -129,6 +161,53 @@ pub fn to_lines(text: &str) -> Vec<Line<'static>> {
 
     flush(&mut lines, &mut current_spans);
     lines
+}
+
+/// Syntax-highlight a code block, falling back to plain dim text for unknown languages.
+fn highlight_block(code: &str, lang: &str) -> Vec<Line<'static>> {
+    let ss = syntax_set();
+    let syntax = if lang.is_empty() {
+        ss.find_syntax_plain_text()
+    } else {
+        ss.find_syntax_by_token(lang)
+            .unwrap_or_else(|| ss.find_syntax_plain_text())
+    };
+
+    let use_highlighting = syntax.name != "Plain Text";
+    let mut h = HighlightLines::new(syntax, theme());
+    let mut result = Vec::new();
+
+    for raw_line in LinesWithEndings::from(code) {
+        if use_highlighting {
+            let ranges = h.highlight_line(raw_line, ss).unwrap_or_default();
+            let mut spans: Vec<Span<'static>> =
+                vec![Span::styled("  ", Style::default().bg(CODE_BG))];
+
+            for (hl_style, fragment) in &ranges {
+                let owned = fragment.trim_end_matches('\n').to_string();
+                if owned.is_empty() {
+                    continue;
+                }
+                let fg = hl_style.foreground;
+                spans.push(Span::styled(
+                    owned,
+                    Style::default()
+                        .fg(Color::Rgb(fg.r, fg.g, fg.b))
+                        .bg(CODE_BG),
+                ));
+            }
+
+            result.push(Line::from(spans));
+        } else {
+            let trimmed = raw_line.trim_end_matches('\n').to_string();
+            result.push(Line::from(Span::styled(
+                format!("  {}", trimmed),
+                Style::default().fg(DIM).bg(CODE_BG),
+            )));
+        }
+    }
+
+    result
 }
 
 fn flush(lines: &mut Vec<Line<'static>>, spans: &mut Vec<Span<'static>>) {
