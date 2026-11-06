@@ -2,12 +2,14 @@ mod app;
 mod ui;
 mod events;
 mod runtime_events;
+mod markdown;
 
 use std::io;
 use std::sync::Arc;
 use app::App;
 use runtime::Runtime;
 use providers::openai::OpenAIProvider;
+use config::Config;
 
 use crossterm::{
     execute,
@@ -15,7 +17,7 @@ use crossterm::{
         EnterAlternateScreen,
         LeaveAlternateScreen,
         disable_raw_mode,
-        enable_raw_mode
+        enable_raw_mode,
     },
 };
 
@@ -26,24 +28,25 @@ use ratatui::{
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    enable_raw_mode()?;
+    let cfg = Config::load().unwrap_or_default();
 
+    let api_key = cfg.resolve_api_key().unwrap_or_else(|e| {
+        eprintln!("friday: {}", e);
+        std::process::exit(1);
+    });
+
+    let mut provider = OpenAIProvider::new(api_key);
+    provider.model = cfg.model.clone();
+
+    let runtime = Arc::new(Runtime::new(Box::new(provider)));
+
+    enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut app = App::new();
-
-    let provider = OpenAIProvider::new(
-    std::env::var("OPENAI_API_KEY")?
-    );
-
-    let runtime = Arc::new(
-        Runtime::new(
-            Box::new(provider)
-        )
-    );
 
     loop {
         app.process_runtime_events();
@@ -59,11 +62,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     disable_raw_mode()?;
-    
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
 
     Ok(())
 }

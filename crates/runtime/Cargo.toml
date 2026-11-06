@@ -11,3 +11,4 @@ futures.workspace = true
 
 providers = { path = "../providers" }
 shared = { path = "../shared" }
+tools = { path = "../tools" }

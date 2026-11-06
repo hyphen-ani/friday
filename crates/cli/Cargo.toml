@@ -15,5 +15,8 @@ crossterm = "0.28"
 futures = "0.3"
 
 runtime = { path = "../runtime" }
+tools = { path = "../tools" }
 shared = { path = "../shared" }
 providers = { path = "../providers" }
+config = { path = "../config" }
+pulldown-cmark = { version = "0.12", default-features = false }

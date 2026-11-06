@@ -9,3 +9,5 @@
 .agent/logs
 
 .DS_Store
+
+config.toml

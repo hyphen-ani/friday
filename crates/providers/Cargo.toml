@@ -14,5 +14,6 @@ futures.workspace = true
 
 bytes = "1"
 eventsource-stream = "0.2"
+async-stream = "0.3"
 
 shared = { path = "../shared" }
