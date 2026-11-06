@@ -227,24 +227,21 @@ fn render_conversation(frame: &mut Frame, app: &App, area: Rect) {
         lines.extend(md_lines);
     }
 
-    // Count total visual rows after wrapping so Paragraph::scroll works correctly.
-    // Manual slicing + Wrap causes row/line mismatch; this avoids that entirely.
-    let col_width = area.width.max(1);
-    let total_visual: u16 = lines.iter().map(|l| {
-        let w = l.width() as u16;
-        if w == 0 { 1 } else { (w + col_width - 1) / col_width }
-    }).sum();
+    // Pre-split every logical Line into single-visual-row lines (≤ col_width chars).
+    // This gives an exact row count — no estimation, no Paragraph::wrap mismatch.
+    let col_width = area.width.max(1) as usize;
+    let flat = split_into_rows(lines, col_width);
 
-    let max_scroll = total_visual.saturating_sub(area.height);
-    let scroll_up = (app.scroll_offset as u16).min(max_scroll);
-    let scroll_from_top = max_scroll.saturating_sub(scroll_up);
+    let total   = flat.len();
+    let visible = area.height as usize;
+    let max_scroll = total.saturating_sub(visible);
+    let scroll_up  = app.scroll_offset.min(max_scroll);
 
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .scroll((scroll_from_top, 0)),
-        area,
-    );
+    let start = max_scroll.saturating_sub(scroll_up);
+    let end   = (start + visible).min(total);
+
+    // No Wrap needed — each line already fits in col_width.
+    frame.render_widget(Paragraph::new(flat[start..end].to_vec()), area);
 }
 
 fn render_input(frame: &mut Frame, app: &App, area: Rect) {
@@ -416,6 +413,56 @@ fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
         ),
         Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height },
     );
+}
+
+/// Split logical Lines into single-visual-row Lines (at most `col_width` chars each).
+/// We split at character boundaries rather than word boundaries so the row count
+/// is exact — no dependency on ratatui's WordWrapper behaviour.
+fn split_into_rows(lines: Vec<Line<'static>>, col_width: usize) -> Vec<Line<'static>> {
+    let mut out: Vec<Line<'static>> = Vec::with_capacity(lines.len() + 8);
+    for line in lines {
+        if line.width() <= col_width {
+            out.push(line);
+        } else {
+            let mut row: Vec<Span<'static>> = Vec::new();
+            let mut col = 0usize;
+
+            for span in line.spans {
+                let style = span.style;
+                let mut s = span.content.into_owned();
+
+                while !s.is_empty() {
+                    let space = col_width.saturating_sub(col);
+                    if space == 0 {
+                        out.push(Line::from(std::mem::take(&mut row)));
+                        col = 0;
+                        continue;
+                    }
+                    let (head, tail) = take_chars(s, space);
+                    col += head.chars().count();
+                    if !head.is_empty() {
+                        row.push(Span::styled(head, style));
+                    }
+                    if col >= col_width {
+                        out.push(Line::from(std::mem::take(&mut row)));
+                        col = 0;
+                    }
+                    s = tail;
+                }
+            }
+            out.push(Line::from(row));
+        }
+    }
+    out
+}
+
+/// Take the first `n` chars of `s`, returning (head, tail) as owned Strings.
+fn take_chars(s: String, n: usize) -> (String, String) {
+    let idx = s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len());
+    let tail = s[idx..].to_string();
+    let mut head = s;
+    head.truncate(idx);
+    (head, tail)
 }
 
 fn render_quit_confirm(frame: &mut Frame, area: Rect) {

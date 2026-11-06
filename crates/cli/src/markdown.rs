@@ -160,6 +160,18 @@ pub fn to_lines(text: &str) -> Vec<Line<'static>> {
     }
 
     flush(&mut lines, &mut current_spans);
+
+    // If the stream ended mid-code-block (no closing fence yet), emit what
+    // we have as plain text so the content is visible while streaming.
+    if in_code_block && !pending_code.is_empty() {
+        for raw in pending_code.trim_end_matches('\n').lines() {
+            lines.push(Line::from(Span::styled(
+                format!("  {}", raw),
+                Style::default().fg(DIM).bg(CODE_BG),
+            )));
+        }
+    }
+
     lines
 }
 
