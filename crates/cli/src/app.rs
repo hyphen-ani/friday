@@ -101,6 +101,11 @@ pub struct App {
     // Local Ollama models discovered at runtime
     pub local_models: Vec<String>,
 
+    // Theme
+    pub theme_idx:            usize,
+    pub theme_picker_open:    bool,
+    pub theme_picker_selected: usize,
+
     pub event_tx: UnboundedSender<RuntimeEvent>,
     pub event_rx: UnboundedReceiver<RuntimeEvent>,
 }
@@ -143,6 +148,9 @@ impl App {
             keys_panel_open: false,
             keys_panel_selected: 0,
             local_models: vec![],
+            theme_idx: 0,
+            theme_picker_open: false,
+            theme_picker_selected: 0,
             event_tx,
             event_rx,
         }

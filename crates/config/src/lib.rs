@@ -10,6 +10,7 @@ pub struct Config {
     pub base_url: Option<String>,
     #[serde(default)]
     pub api_keys: HashMap<String, String>,
+    pub theme: Option<String>,
 }
 
 impl Default for Config {
@@ -19,6 +20,7 @@ impl Default for Config {
             model: "gpt-4o-mini".to_string(),
             base_url: None,
             api_keys: HashMap::new(),
+            theme: None,
         }
     }
 }

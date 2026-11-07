@@ -6,11 +6,7 @@ use ratatui::{
 
 use crate::app::{App, MessageRole, COMMANDS};
 use crate::models::{MODELS, unique_providers};
-
-const ACCENT: Color = Color::Rgb(230, 170, 80);
-const MUTED:  Color = Color::DarkGray;
-const TEXT:   Color = Color::White;
-const DIM:    Color = Color::Rgb(100, 100, 100);
+use crate::themes;
 
 // Height of the welcome box (border + content rows)
 const WELCOME_HEIGHT: u16 = 14;
@@ -33,12 +29,16 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     render_header(frame, layout[0], app);
     if !app.welcome_dismissed {
-        render_welcome(frame, layout[1]);
+        render_welcome(frame, layout[1], app);
     }
     render_conversation(frame, app, layout[2]);
     render_input(frame, app, layout[3]);
     render_command_palette(frame, app, layout[3]);
     render_hints(frame, app, layout[4]);
+
+    if app.theme_picker_open {
+        render_theme_picker(frame, app, layout[3]);
+    }
 
     if app.model_picker_open {
         render_model_picker(frame, app, layout[3]);
@@ -53,7 +53,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     }
 
     if app.confirm_quit {
-        render_quit_confirm(frame, area);
+        render_quit_confirm(frame, area, app);
     }
 
     // Cursor: +1 for left border, then N chars of input text
@@ -64,9 +64,10 @@ pub fn render(frame: &mut Frame, app: &App) {
 }
 
 fn render_header(frame: &mut Frame, area: Rect, app: &App) {
+    let t = themes::current(app);
     let left = Line::from(vec![
-        Span::styled(" ✦ Friday", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-        Span::styled("  v0.1.0", Style::default().fg(DIM)),
+        Span::styled(" ✦ Friday", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+        Span::styled("  v0.1.0", Style::default().fg(t.dim)),
     ]);
 
     let model_id = app.current_model.read().unwrap().clone();
@@ -75,30 +76,30 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         .map(|m| m.label)
         .unwrap_or(&model_id);
     let right_text = format!("{}  ◆ {}  ", model_label, app.mode.label());
-    let right = Paragraph::new(Line::from(Span::styled(right_text, Style::default().fg(MUTED))))
+    let right = Paragraph::new(Line::from(Span::styled(right_text, Style::default().fg(t.muted))))
         .alignment(Alignment::Right);
 
     frame.render_widget(Paragraph::new(left), area);
     frame.render_widget(right, area);
 }
 
-fn render_welcome(frame: &mut Frame, area: Rect) {
+fn render_welcome(frame: &mut Frame, area: Rect, app: &App) {
+    let t = themes::current(app);
     let box_width = area.width.min(90);
     let box_area = Rect { x: area.x, y: area.y, width: box_width, height: area.height };
 
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(ACCENT))
+        .border_style(Style::default().fg(t.accent))
         .title(Line::from(vec![
-            Span::styled(" Friday ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-            Span::styled("v0.1.0 ", Style::default().fg(MUTED)),
+            Span::styled(" Friday ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("v0.1.0 ", Style::default().fg(t.muted)),
         ]));
 
     let inner = outer.inner(box_area);
     frame.render_widget(outer, box_area);
 
-    // Split into left (mascot) and right (tips) with a divider
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -108,17 +109,17 @@ fn render_welcome(frame: &mut Frame, area: Rect) {
         ])
         .split(inner);
 
-    // Vertical divider
     let rule: Vec<Line> = (0..cols[1].height)
-        .map(|_| Line::from(Span::styled("│", Style::default().fg(MUTED))))
+        .map(|_| Line::from(Span::styled("│", Style::default().fg(t.muted))))
         .collect();
     frame.render_widget(Paragraph::new(rule), cols[1]);
 
-    render_welcome_left(frame, cols[0]);
-    render_welcome_right(frame, cols[2]);
+    render_welcome_left(frame, cols[0], app);
+    render_welcome_right(frame, cols[2], app);
 }
 
-fn render_welcome_left(frame: &mut Frame, area: Rect) {
+fn render_welcome_left(frame: &mut Frame, area: Rect, app: &App) {
+    let t = themes::current(app);
     const MASCOT: [&str; 6] = [
         "  ▄▄  ▄▄  ",
         " ████████ ",
@@ -131,15 +132,15 @@ fn render_welcome_left(frame: &mut Frame, area: Rect) {
     let mut content: Vec<Line> = vec![
         Line::from(Span::styled(
             "Welcome back!",
-            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.text).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
     ];
     for row in MASCOT {
-        content.push(Line::from(Span::styled(row, Style::default().fg(ACCENT))));
+        content.push(Line::from(Span::styled(row, Style::default().fg(t.accent))));
     }
     content.push(Line::from(""));
-    content.push(Line::from(Span::styled("Friday CLI  ·  gpt-4o-mini", Style::default().fg(MUTED))));
+    content.push(Line::from(Span::styled("Friday CLI  ·  gpt-4o-mini", Style::default().fg(t.muted))));
 
     let top_pad = area.height.saturating_sub(content.len() as u16) / 2;
     let mut padded: Vec<Line> = vec![Line::from(""); top_pad as usize];
@@ -151,24 +152,25 @@ fn render_welcome_left(frame: &mut Frame, area: Rect) {
     );
 }
 
-fn render_welcome_right(frame: &mut Frame, area: Rect) {
+fn render_welcome_right(frame: &mut Frame, area: Rect, app: &App) {
+    let t = themes::current(app);
     let rule_width = area.width.saturating_sub(2) as usize;
     let lines: Vec<Line> = vec![
         Line::from(Span::styled(
             "Tips for getting started",
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::styled("Type / to browse commands", Style::default().fg(TEXT))),
-        Line::from(Span::styled("Shift+Tab to switch modes", Style::default().fg(TEXT))),
-        Line::from(Span::styled("Esc to clear input or quit", Style::default().fg(TEXT))),
+        Line::from(Span::styled("Type / to browse commands", Style::default().fg(t.text))),
+        Line::from(Span::styled("Shift+Tab to switch modes", Style::default().fg(t.text))),
+        Line::from(Span::styled("Esc to clear input or quit", Style::default().fg(t.text))),
         Line::from(""),
-        Line::from(Span::styled("─".repeat(rule_width), Style::default().fg(MUTED))),
+        Line::from(Span::styled("─".repeat(rule_width), Style::default().fg(t.muted))),
         Line::from(""),
         Line::from(Span::styled(
             "Modes",
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::styled("chat · command · agent", Style::default().fg(MUTED))),
+        Line::from(Span::styled("chat · command · agent", Style::default().fg(t.muted))),
     ];
 
     frame.render_widget(
@@ -180,6 +182,7 @@ fn render_welcome_right(frame: &mut Frame, area: Rect) {
 }
 
 fn render_conversation(frame: &mut Frame, app: &App, area: Rect) {
+    let t = themes::current(app);
     let mut lines: Vec<Line> = vec![];
 
     for message in &app.messages {
@@ -188,7 +191,7 @@ fn render_conversation(frame: &mut Frame, app: &App, area: Rect) {
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
                     "● You",
-                    Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(t.text).add_modifier(Modifier::BOLD),
                 )));
                 for content_line in message.content.lines() {
                     lines.push(Line::from(content_line.to_string()));
@@ -199,7 +202,7 @@ fn render_conversation(frame: &mut Frame, app: &App, area: Rect) {
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
                     "✦ Friday",
-                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
                 )));
                 lines.extend(crate::markdown::to_lines(&message.content));
             }
@@ -208,7 +211,7 @@ fn render_conversation(frame: &mut Frame, app: &App, area: Rect) {
                 for content_line in message.content.lines() {
                     lines.push(Line::from(Span::styled(
                         content_line.to_string(),
-                        Style::default().fg(MUTED),
+                        Style::default().fg(t.muted),
                     )));
                 }
             }
@@ -219,13 +222,12 @@ fn render_conversation(frame: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "✦ Friday",
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
         )));
 
         let mut md_lines = crate::markdown::to_lines(streaming);
 
-        // Append the streaming cursor to the last line, or add it on its own
-        let cursor = Span::styled("▋", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
+        let cursor = Span::styled("▋", Style::default().fg(t.accent).add_modifier(Modifier::BOLD));
         if let Some(last) = md_lines.last_mut() {
             last.spans.push(cursor);
         } else {
@@ -253,21 +255,22 @@ fn render_conversation(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_input(frame: &mut Frame, app: &App, area: Rect) {
+    let t = themes::current(app);
     let mode_label = app.mode.label();
     let placeholder = app.mode.placeholder();
 
     let input_text = if app.input.is_empty() {
-        Line::from(Span::styled(placeholder, Style::default().fg(MUTED)))
+        Line::from(Span::styled(placeholder, Style::default().fg(t.muted)))
     } else {
-        Line::from(Span::styled(app.input.clone(), Style::default().fg(TEXT)))
+        Line::from(Span::styled(app.input.clone(), Style::default().fg(t.text)))
     };
 
-    let border_color = if !app.input.is_empty() { ACCENT } else { MUTED };
+    let border_color = if !app.input.is_empty() { t.accent } else { t.muted };
 
     let title = Line::from(vec![
-        Span::styled(" [", Style::default().fg(DIM)),
-        Span::styled(mode_label, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-        Span::styled("] ", Style::default().fg(DIM)),
+        Span::styled(" [", Style::default().fg(t.dim)),
+        Span::styled(mode_label, Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+        Span::styled("] ", Style::default().fg(t.dim)),
     ]);
 
     frame.render_widget(
@@ -286,7 +289,7 @@ fn render_command_palette(frame: &mut Frame, app: &App, input_area: Rect) {
     if app.filtered_commands.is_empty() {
         return;
     }
-
+    let t = themes::current(app);
     const NAME_COL: usize = 13;
 
     let suggestions: Vec<Line> = app
@@ -300,15 +303,15 @@ fn render_command_palette(frame: &mut Frame, app: &App, input_area: Rect) {
 
             if is_selected {
                 Line::from(vec![
-                    Span::styled("› ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                    Span::styled(name_padded, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                    Span::styled(cmd.description, Style::default().fg(TEXT)),
+                    Span::styled("› ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(name_padded, Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(cmd.description, Style::default().fg(t.text)),
                 ])
             } else {
                 Line::from(vec![
                     Span::raw("  "),
-                    Span::styled(name_padded, Style::default().fg(TEXT)),
-                    Span::styled(cmd.description, Style::default().fg(MUTED)),
+                    Span::styled(name_padded, Style::default().fg(t.text)),
+                    Span::styled(cmd.description, Style::default().fg(t.muted)),
                 ])
             }
         })
@@ -323,17 +326,18 @@ fn render_command_palette(frame: &mut Frame, app: &App, input_area: Rect) {
     frame.render_widget(
         Paragraph::new(suggestions).block(
             Block::default()
-                .title(Span::styled(" friday commands ", Style::default().fg(MUTED)))
+                .title(Span::styled(" friday commands ", Style::default().fg(t.muted)))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(MUTED))
-                .style(Style::default().bg(Color::Rgb(16, 16, 16))),
+                .border_style(Style::default().fg(t.muted))
+                .style(Style::default().bg(t.bg)),
         ),
         popup_rect,
     );
 }
 
 fn render_hints(frame: &mut Frame, app: &App, area: Rect) {
+    let t = themes::current(app);
     let scroll_indicator = if app.scroll_offset > 0 {
         format!(" ↑{}  ", app.scroll_offset)
     } else {
@@ -341,25 +345,26 @@ fn render_hints(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let hints = Line::from(vec![
-        Span::styled(scroll_indicator, Style::default().fg(ACCENT)),
-        Span::styled(" [", Style::default().fg(DIM)),
-        Span::styled("shift+tab", Style::default().fg(MUTED)),
-        Span::styled("] ", Style::default().fg(DIM)),
-        Span::styled("mode", Style::default().fg(DIM)),
-        Span::styled("   [", Style::default().fg(DIM)),
-        Span::styled("↑↓/pgup/pgdn", Style::default().fg(MUTED)),
-        Span::styled("] ", Style::default().fg(DIM)),
-        Span::styled("scroll", Style::default().fg(DIM)),
-        Span::styled("   [", Style::default().fg(DIM)),
-        Span::styled("esc", Style::default().fg(MUTED)),
-        Span::styled("] ", Style::default().fg(DIM)),
-        Span::styled("clear/quit", Style::default().fg(DIM)),
+        Span::styled(scroll_indicator, Style::default().fg(t.accent)),
+        Span::styled(" [", Style::default().fg(t.dim)),
+        Span::styled("shift+tab", Style::default().fg(t.muted)),
+        Span::styled("] ", Style::default().fg(t.dim)),
+        Span::styled("mode", Style::default().fg(t.dim)),
+        Span::styled("   [", Style::default().fg(t.dim)),
+        Span::styled("↑↓/pgup/pgdn", Style::default().fg(t.muted)),
+        Span::styled("] ", Style::default().fg(t.dim)),
+        Span::styled("scroll", Style::default().fg(t.dim)),
+        Span::styled("   [", Style::default().fg(t.dim)),
+        Span::styled("esc", Style::default().fg(t.muted)),
+        Span::styled("] ", Style::default().fg(t.dim)),
+        Span::styled("clear/quit", Style::default().fg(t.dim)),
     ]);
 
     frame.render_widget(Paragraph::new(hints), area);
 }
 
 fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
+    let t = themes::current(app);
     const ID_COL: usize = 28;
 
     let current_id = app.current_model.read().unwrap().clone();
@@ -373,7 +378,7 @@ fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
             if !rows.is_empty() { rows.push(Line::from("")); }
             rows.push(Line::from(Span::styled(
                 format!("  {}", m.provider),
-                Style::default().fg(DIM).add_modifier(Modifier::BOLD),
+                Style::default().fg(t.dim).add_modifier(Modifier::BOLD),
             )));
             last_provider = m.provider;
         }
@@ -390,21 +395,21 @@ fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
 
         rows.push(if is_selected {
             Line::from(vec![
-                Span::styled(marker,     Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                Span::styled(id_padded,  Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                Span::styled(lbl_padded, Style::default().fg(TEXT)),
+                Span::styled(marker,     Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(id_padded,  Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(lbl_padded, Style::default().fg(t.text)),
             ])
         } else if is_active {
             Line::from(vec![
-                Span::styled(marker,     Style::default().fg(ACCENT)),
-                Span::styled(id_padded,  Style::default().fg(TEXT)),
-                Span::styled(lbl_padded, Style::default().fg(MUTED)),
+                Span::styled(marker,     Style::default().fg(t.accent)),
+                Span::styled(id_padded,  Style::default().fg(t.text)),
+                Span::styled(lbl_padded, Style::default().fg(t.muted)),
             ])
         } else {
             Line::from(vec![
                 Span::raw(marker),
-                Span::styled(id_padded,  Style::default().fg(MUTED)),
-                Span::styled(lbl_padded, Style::default().fg(DIM)),
+                Span::styled(id_padded,  Style::default().fg(t.muted)),
+                Span::styled(lbl_padded, Style::default().fg(t.dim)),
             ])
         });
     }
@@ -414,7 +419,7 @@ fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
     if !app.local_models.is_empty() {
         rows.push(Line::from(Span::styled(
             "  Local (Ollama)",
-            Style::default().fg(DIM).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.dim).add_modifier(Modifier::BOLD),
         )));
         for (j, name) in app.local_models.iter().enumerate() {
             let idx = MODELS.len() + j;
@@ -430,32 +435,31 @@ fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
 
             rows.push(if is_selected {
                 Line::from(vec![
-                    Span::styled(marker,    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                    Span::styled(id_padded, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                    Span::styled("local",   Style::default().fg(TEXT)),
+                    Span::styled(marker,    Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(id_padded, Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("local",   Style::default().fg(t.text)),
                 ])
             } else if is_active {
                 Line::from(vec![
-                    Span::styled(marker,    Style::default().fg(ACCENT)),
-                    Span::styled(id_padded, Style::default().fg(TEXT)),
-                    Span::styled("local",   Style::default().fg(MUTED)),
+                    Span::styled(marker,    Style::default().fg(t.accent)),
+                    Span::styled(id_padded, Style::default().fg(t.text)),
+                    Span::styled("local",   Style::default().fg(t.muted)),
                 ])
             } else {
                 Line::from(vec![
                     Span::raw(marker),
-                    Span::styled(id_padded, Style::default().fg(MUTED)),
-                    Span::styled("local",   Style::default().fg(DIM)),
+                    Span::styled(id_padded, Style::default().fg(t.muted)),
+                    Span::styled("local",   Style::default().fg(t.dim)),
                 ])
             });
         }
     } else {
         rows.push(Line::from(Span::styled(
             "  Local (Ollama not detected)",
-            Style::default().fg(DIM),
+            Style::default().fg(t.dim),
         )));
     }
 
-    // Cap popup to available space above the input box (minus 2 for borders)
     let available    = input_area.y.saturating_sub(2);
     let visible_rows = (available as usize).min(rows.len());
     let popup_height = visible_rows as u16 + 2;
@@ -463,7 +467,6 @@ fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
     let popup_width  = 58u16.min(input_area.width.saturating_sub(2));
     let popup_rect   = Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height };
 
-    // Scroll so the selected row is always visible
     let scroll: u16 = if selected_visual_row >= visible_rows as u16 {
         selected_visual_row.saturating_sub(visible_rows as u16 - 1)
     } else {
@@ -476,11 +479,11 @@ fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
             .scroll((scroll, 0))
             .block(
                 Block::default()
-                    .title(Span::styled(" switch model ", Style::default().fg(MUTED)))
+                    .title(Span::styled(" switch model ", Style::default().fg(t.muted)))
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(ACCENT))
-                    .style(Style::default().bg(Color::Rgb(16, 16, 16))),
+                    .border_style(Style::default().fg(t.accent))
+                    .style(Style::default().bg(t.bg)),
             ),
         popup_rect,
     );
@@ -536,7 +539,8 @@ fn take_chars(s: String, n: usize) -> (String, String) {
     (head, tail)
 }
 
-fn render_quit_confirm(frame: &mut Frame, area: Rect) {
+fn render_quit_confirm(frame: &mut Frame, area: Rect, app: &App) {
+    let t = themes::current(app);
     const W: u16 = 36;
     const H: u16 = 3;
     let x = area.x + (area.width.saturating_sub(W)) / 2;
@@ -544,11 +548,11 @@ fn render_quit_confirm(frame: &mut Frame, area: Rect) {
     let popup = Rect { x, y, width: W, height: H };
 
     let content = Line::from(vec![
-        Span::styled("Quit Friday? ", Style::default().fg(TEXT)),
-        Span::styled("[y]", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-        Span::styled(" yes  ", Style::default().fg(MUTED)),
-        Span::styled("[esc]", Style::default().fg(MUTED)),
-        Span::styled(" cancel", Style::default().fg(MUTED)),
+        Span::styled("Quit Friday? ", Style::default().fg(t.text)),
+        Span::styled("[y]",   Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(" yes  ", Style::default().fg(t.muted)),
+        Span::styled("[esc]",  Style::default().fg(t.muted)),
+        Span::styled(" cancel", Style::default().fg(t.muted)),
     ]);
 
     frame.render_widget(
@@ -558,7 +562,8 @@ fn render_quit_confirm(frame: &mut Frame, area: Rect) {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(ACCENT)),
+                    .border_style(Style::default().fg(t.accent))
+                    .style(Style::default().bg(t.bg)),
             ),
         popup,
     );
@@ -566,6 +571,7 @@ fn render_quit_confirm(frame: &mut Frame, area: Rect) {
 
 /// /keys panel — lists all providers with key status; Enter opens the key-input overlay.
 fn render_keys_panel(frame: &mut Frame, app: &App, input_area: Rect) {
+    let t = themes::current(app);
     let cfg = config::Config::load().unwrap_or_default();
     let providers = unique_providers();
 
@@ -578,43 +584,33 @@ fn render_keys_panel(frame: &mut Frame, app: &App, input_area: Rect) {
         let (indicator, key_preview) = match &stored {
             Some(k) => {
                 let tail = if k.len() > 4 { &k[k.len() - 4..] } else { k };
-                let dots = "●";
-                (dots, format!("···{}", tail))
+                ("●", format!("···{}", tail))
             }
             None => ("○", "not set".to_string()),
         };
 
-        let ind_style = if stored.is_some() {
-            Style::default().fg(ACCENT)
-        } else {
-            Style::default().fg(DIM)
-        };
-        let key_style = if stored.is_some() {
-            Style::default().fg(MUTED)
-        } else {
-            Style::default().fg(DIM)
-        };
+        let ind_style = if stored.is_some() { Style::default().fg(t.accent) } else { Style::default().fg(t.dim) };
+        let key_style = if stored.is_some() { Style::default().fg(t.muted)  } else { Style::default().fg(t.dim) };
 
         let marker = if is_selected { "› " } else { "  " };
         let name_padded = format!("{:<12}", p.provider);
         let ind_padded  = format!("{:<2}", indicator);
 
-        let row = if is_selected {
+        rows.push(if is_selected {
             Line::from(vec![
-                Span::styled(marker,       Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                Span::styled(name_padded,  Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                Span::styled(ind_padded,   ind_style.add_modifier(Modifier::BOLD)),
-                Span::styled(key_preview,  Style::default().fg(TEXT)),
+                Span::styled(marker,      Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(name_padded, Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(ind_padded,  ind_style.add_modifier(Modifier::BOLD)),
+                Span::styled(key_preview, Style::default().fg(t.text)),
             ])
         } else {
             Line::from(vec![
                 Span::raw(marker),
-                Span::styled(name_padded, Style::default().fg(MUTED)),
+                Span::styled(name_padded, Style::default().fg(t.muted)),
                 Span::styled(ind_padded,  ind_style),
                 Span::styled(key_preview, key_style),
             ])
-        };
-        rows.push(row);
+        });
     }
 
     let popup_height = (providers.len() as u16) + 2;
@@ -626,11 +622,11 @@ fn render_keys_panel(frame: &mut Frame, app: &App, input_area: Rect) {
     frame.render_widget(
         Paragraph::new(rows).block(
             Block::default()
-                .title(Span::styled(" manage API keys ", Style::default().fg(MUTED)))
+                .title(Span::styled(" manage API keys ", Style::default().fg(t.muted)))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(ACCENT))
-                .style(Style::default().bg(Color::Rgb(16, 16, 16))),
+                .border_style(Style::default().fg(t.accent))
+                .style(Style::default().bg(t.bg)),
         ),
         popup_rect,
     );
@@ -639,10 +635,10 @@ fn render_keys_panel(frame: &mut Frame, app: &App, input_area: Rect) {
 /// Inline API-key input overlay — shown when switching to a provider with no stored key,
 /// or when editing a key from the /keys panel.
 fn render_key_input(frame: &mut Frame, app: &App, input_area: Rect) {
+    let t = themes::current(app);
     let title = format!(" API key for {} ", app.key_input_provider);
     let hint   = format!("or set {} env var", app.key_input_env_hint);
 
-    // Mask all but the last 4 typed characters
     let display = if app.key_input_value.is_empty() {
         String::new()
     } else {
@@ -654,18 +650,16 @@ fn render_key_input(frame: &mut Frame, app: &App, input_area: Rect) {
 
     let content = vec![
         Line::from(vec![
-            Span::styled(" ", Style::default()),
-            Span::styled(&display, Style::default().fg(ACCENT)),
+            Span::raw(" "),
+            Span::styled(&display, Style::default().fg(t.accent)),
         ]),
         Line::from(""),
+        Line::from(Span::styled(format!("  {} ", hint), Style::default().fg(t.dim))),
         Line::from(vec![
-            Span::styled(format!("  {} ", hint), Style::default().fg(DIM)),
-        ]),
-        Line::from(vec![
-            Span::styled("  Enter ", Style::default().fg(MUTED)),
-            Span::styled("save · ", Style::default().fg(DIM)),
-            Span::styled("Esc ", Style::default().fg(MUTED)),
-            Span::styled("cancel", Style::default().fg(DIM)),
+            Span::styled("  Enter ", Style::default().fg(t.muted)),
+            Span::styled("save · ",  Style::default().fg(t.dim)),
+            Span::styled("Esc ",     Style::default().fg(t.muted)),
+            Span::styled("cancel",   Style::default().fg(t.dim)),
         ]),
     ];
 
@@ -678,17 +672,69 @@ fn render_key_input(frame: &mut Frame, app: &App, input_area: Rect) {
     frame.render_widget(
         Paragraph::new(content).block(
             Block::default()
-                .title(Span::styled(title, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+                .title(Span::styled(title, Style::default().fg(t.accent).add_modifier(Modifier::BOLD)))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(ACCENT))
-                .style(Style::default().bg(Color::Rgb(16, 16, 16))),
+                .border_style(Style::default().fg(t.accent))
+                .style(Style::default().bg(t.bg)),
         ),
         popup_rect,
     );
 
-    // Position cursor at end of masked input line
     let cursor_x = popup_rect.x + 1 + display.chars().count() as u16 + 1;
     let cursor_y = popup_rect.y + 1;
     frame.set_cursor_position((cursor_x.min(popup_rect.x + popup_rect.width - 2), cursor_y));
+}
+
+fn render_theme_picker(frame: &mut Frame, app: &App, input_area: Rect) {
+    // Each theme name is rendered in its own accent color so you can see the palette at a glance.
+    // Navigating previews the full UI live before you commit.
+    let rows: Vec<Line> = themes::THEMES.iter().enumerate().map(|(i, th)| {
+        let is_selected = i == app.theme_picker_selected;
+        let is_active   = i == app.theme_idx;
+        let marker      = if is_active { "✦ " } else if is_selected { "› " } else { "  " };
+        let name_padded = format!("{:<10}", th.name);
+
+        if is_selected {
+            Line::from(vec![
+                Span::styled(marker,       Style::default().fg(th.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(name_padded,  Style::default().fg(th.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(th.description, Style::default().fg(Color::White)),
+            ])
+        } else {
+            Line::from(vec![
+                Span::raw(marker),
+                Span::styled(name_padded,    Style::default().fg(th.accent)),
+                Span::styled(th.description, Style::default().fg(Color::Rgb(70, 70, 70))),
+            ])
+        }
+    }).collect();
+
+    let popup_height = (themes::THEMES.len() as u16) + 2;
+    let popup_y      = input_area.y.saturating_sub(popup_height);
+    let popup_width  = 56u16.min(input_area.width.saturating_sub(2));
+    let popup_rect   = Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height };
+
+    // Use the previewed theme's bg for the panel itself
+    let preview_bg = themes::THEMES[app.theme_picker_selected.min(themes::THEMES.len() - 1)].bg;
+
+    frame.render_widget(Clear, popup_rect);
+    frame.render_widget(
+        Paragraph::new(rows).block(
+            Block::default()
+                .title(Span::styled(
+                    " choose theme ",
+                    Style::default()
+                        .fg(themes::THEMES[app.theme_picker_selected.min(themes::THEMES.len() - 1)].accent)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(
+                    themes::THEMES[app.theme_picker_selected.min(themes::THEMES.len() - 1)].accent,
+                ))
+                .style(Style::default().bg(preview_bg)),
+        ),
+        popup_rect,
+    );
 }

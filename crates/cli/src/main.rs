@@ -6,6 +6,7 @@ mod markdown;
 mod models;
 mod shortcuts;
 mod ollama;
+mod themes;
 
 use std::io;
 use std::sync::{Arc, RwLock};
@@ -83,6 +84,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Pre-populate local models before the first draw (Ollama is local — instant or <50ms)
     app.local_models = ollama::discover().await;
+
+    // Restore saved theme
+    app.theme_idx = cfg.theme.as_deref().map(themes::by_name).unwrap_or(0);
 
     loop {
         app.process_runtime_events();

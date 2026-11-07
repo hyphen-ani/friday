@@ -6,6 +6,7 @@ use providers::types::ProviderMessage;
 use crate::app::{App, ChatMessage, MessageRole, COMMANDS};
 use crate::models::{MODELS, unique_providers};
 use crate::ollama;
+use crate::themes;
 
 pub async fn handle_events(app: &mut App, runtime: Arc<Runtime>) -> anyhow::Result<()> {
     if !event::poll(Duration::from_millis(16))? {
@@ -76,6 +77,46 @@ pub async fn handle_events(app: &mut App, runtime: Arc<Runtime>) -> anyhow::Resu
                     app.key_input_open = false;
                     app.key_input_value.clear();
                 }
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+
+    // ── Theme picker ──────────────────────────────────────────────────────────
+    if app.theme_picker_open {
+        match key.code {
+            KeyCode::Esc => {
+                // Revert live preview to the confirmed theme
+                app.theme_picker_selected = app.theme_idx;
+                app.theme_picker_open = false;
+            }
+            KeyCode::Up => {
+                if app.theme_picker_selected > 0 {
+                    app.theme_picker_selected -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if app.theme_picker_selected + 1 < themes::THEMES.len() {
+                    app.theme_picker_selected += 1;
+                }
+            }
+            KeyCode::Enter => {
+                app.theme_idx = app.theme_picker_selected;
+                app.theme_picker_open = false;
+                // Persist
+                if let Ok(mut cfg) = config::Config::load() {
+                    cfg.theme = Some(themes::THEMES[app.theme_idx].name.to_string());
+                    cfg.save().ok();
+                }
+                app.messages.push(ChatMessage {
+                    role: MessageRole::System,
+                    content: format!(
+                        "Theme set to {}  —  {}",
+                        themes::THEMES[app.theme_idx].name,
+                        themes::THEMES[app.theme_idx].description,
+                    ),
+                });
             }
             _ => {}
         }
@@ -271,6 +312,11 @@ pub async fn handle_events(app: &mut App, runtime: Arc<Runtime>) -> anyhow::Resu
                 "/keys" => {
                     app.keys_panel_open = true;
                     app.keys_panel_selected = 0;
+                }
+
+                "/theme" => {
+                    app.theme_picker_open = true;
+                    app.theme_picker_selected = app.theme_idx;
                 }
 
                 "/tools" => {
