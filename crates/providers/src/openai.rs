@@ -14,20 +14,19 @@ use crate::{
 };
 
 pub struct OpenAIProvider {
-    pub api_key: String,
-    pub client: Client,
-    pub model: Arc<RwLock<String>>,
-    pub base_url: String,
+    pub api_key:  Arc<RwLock<String>>,
+    pub client:   Client,
+    pub model:    Arc<RwLock<String>>,
+    pub base_url: Arc<RwLock<String>>,
 }
 
 impl OpenAIProvider {
-    pub fn new(api_key: String, model: Arc<RwLock<String>>) -> Self {
-        Self {
-            api_key,
-            client: Client::new(),
-            model,
-            base_url: "https://api.openai.com/v1".to_string(),
-        }
+    pub fn new(
+        api_key:  Arc<RwLock<String>>,
+        model:    Arc<RwLock<String>>,
+        base_url: Arc<RwLock<String>>,
+    ) -> Self {
+        Self { api_key, client: Client::new(), model, base_url }
     }
 }
 
@@ -156,7 +155,10 @@ impl ModelProvider for OpenAIProvider {
             },
         }).collect();
 
-        let model_id = self.model.read().unwrap().clone();
+        let model_id  = self.model.read().unwrap().clone();
+        let api_key   = self.api_key.read().unwrap().clone();
+        let base_url  = self.base_url.read().unwrap().clone();
+
         let body = ChatRequest {
             model: &model_id,
             messages: req_messages,
@@ -164,10 +166,10 @@ impl ModelProvider for OpenAIProvider {
             tools: req_tools,
         };
 
-        let url = format!("{}/chat/completions", self.base_url);
+        let url = format!("{}/chat/completions", base_url);
         let response = self.client
             .post(&url)
-            .bearer_auth(&self.api_key)
+            .bearer_auth(&api_key)
             .json(&body)
             .send()
             .await?;

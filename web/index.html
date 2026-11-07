@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>friday — AI coding assistant for the terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --amber:    #E6AA50;
+      --amber-lo: rgba(230,170,80,0.12);
+      --text:     #c8c8c8;
+      --muted:    #666;
+      --dim:      #3a3a3a;
+      --code-bg:  #0e0e0e;
+      --term-bg:  #060606;
+      --border:   #1c1c1c;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: var(--text);
+      font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 15px;
+      padding: 20px;
+    }
+
+    /* ── Brand ───────────────────────────────────────── */
+    .brand { text-align: center; }
+
+    .brand-name {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--amber);
+      letter-spacing: 0.08em;
+    }
+
+    .brand-name .star { opacity: 0.9; }
+
+    .brand-sub {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11.5px;
+      letter-spacing: 0.03em;
+    }
+
+    /* ── Terminal window ─────────────────────────────── */
+    .terminal {
+      width: min(700px, 100%);
+      background: var(--term-bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      overflow: hidden;
+      box-shadow: 0 0 60px rgba(230,170,80,0.04), 0 20px 60px rgba(0,0,0,0.6);
+    }
+
+    /* header bar */
+    .t-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .t-header-left {
+      color: var(--amber);
+      font-weight: 700;
+    }
+
+    .t-header-left .ver {
+      color: var(--dim);
+      font-weight: 400;
+      margin-left: 6px;
+    }
+
+    .t-header-right {
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .t-header-right .dot { color: var(--amber); }
+
+    /* body / messages */
+    .t-body {
+      padding: 10px 14px;
+    }
+
+    .msg + .msg { margin-top: 10px; }
+
+    .msg-label {
+      font-weight: 700;
+      font-size: 12px;
+      margin-bottom: 3px;
+    }
+
+    .msg-label.ai   { color: var(--amber); }
+    .msg-label.user { color: var(--text); }
+
+    .msg-text {
+      color: var(--text);
+      font-size: 12.5px;
+    }
+
+    .msg-muted { color: var(--muted); }
+
+    /* code block */
+    .code-block {
+      background: var(--code-bg);
+      border-left: 2px solid var(--amber);
+      padding: 7px 10px;
+      margin: 7px 0;
+      font-size: 12px;
+      line-height: 1.65;
+      white-space: pre;
+    }
+
+    /* syntax — base16-ocean.dark palette */
+    .kw { color: #b48ead; }   /* keyword        → mauve */
+    .fn { color: #8fa1b3; }   /* function       → slate-blue */
+    .ty { color: #ebcb8b; }   /* type           → yellow */
+    .st { color: #a3be8c; }   /* string         → sage */
+    .cm { color: #65737e; }   /* comment        → gray-blue */
+    .nm { color: #d08770; }   /* number/literal → rust-orange */
+    .pn { color: #c0c5ce; }   /* punctuation    → off-white */
+    .rx { color: #96b5b4; }   /* reference &    → teal */
+
+    /* input */
+    .t-input-wrap {
+      padding: 5px 14px 5px;
+    }
+
+    .t-input {
+      border: 1px solid #252525;
+      border-radius: 3px;
+      padding: 4px 9px;
+      font-family: inherit;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: #2a2a2a;
+      background: transparent;
+    }
+
+    .t-input .mode-label {
+      color: #2d2d2d;
+    }
+
+    .t-input .mode-label .m { color: var(--amber); font-weight: 700; }
+
+    .t-input .placeholder { color: #2f2f2f; flex: 1; }
+
+    .cursor {
+      display: inline-block;
+      width: 7px;
+      height: 13px;
+      background: var(--amber);
+      vertical-align: middle;
+      animation: blink 1.1s step-end infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+
+    /* hints bar */
+    .t-hints {
+      border-top: 1px solid #0f0f0f;
+      padding: 4px 14px;
+      display: flex;
+      gap: 18px;
+      font-size: 11px;
+      color: #2e2e2e;
+    }
+
+    .t-hints .k { color: #3a3a3a; }
+
+    /* ── Install ─────────────────────────────────────── */
+    .install { text-align: center; }
+
+    .install-label {
+      color: var(--muted);
+      font-size: 10.5px;
+      margin-bottom: 7px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .install-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #060606;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 9px 14px;
+      font-size: 13px;
+    }
+
+    .install-row .ps  { color: var(--amber); user-select: none; }
+    .install-row .cmd { color: #aaa; }
+
+    .install-row .copy {
+      margin-left: auto;
+      color: var(--muted);
+      background: none;
+      border: none;
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 3px;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .install-row .copy:hover {
+      color: var(--amber);
+      background: var(--amber-lo);
+    }
+
+    /* ── Footer links ────────────────────────────────── */
+    .links {
+      display: flex;
+      gap: 22px;
+      font-size: 11px;
+    }
+
+    .links a {
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    .links a:hover { color: var(--amber); }
+
+    /* ── Mascot ──────────────────────────────────────── */
+    .mascot-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mascot-wrap {
+      display: inline-block;
+      animation: mascot-float 2.8s ease-in-out infinite;
+      filter: drop-shadow(0 0 7px rgba(230,170,80,0.35));
+    }
+
+    @keyframes mascot-float {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-5px); }
+    }
+
+    .mascot-label {
+      font-size: 10px;
+      color: var(--dim);
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Mascot action animations ────────────────────── */
+
+    /* Walk — legs alternate (same keyframe, leg-r starts at halfway via negative delay) */
+    #mascot-svg.walk #m-leg-l { animation: walk-leg 0.52s ease-in-out infinite; }
+    #mascot-svg.walk #m-leg-r { animation: walk-leg 0.52s ease-in-out infinite -0.26s; }
+    #mascot-svg.walk #m-upper { animation: upper-sway 0.52s ease-in-out infinite; }
+
+    @keyframes walk-leg {
+      0%, 50%, 100% { transform: translateY(0); }
+      25%            { transform: translateY(-10px); }
+    }
+    @keyframes upper-sway {
+      0%, 100% { transform: translateX(0); }
+      25%      { transform: translateX(2px); }
+      75%      { transform: translateX(-2px); }
+    }
+
+    /* Look — eyes slide left → centre → right → centre */
+    #mascot-svg.look #m-eyes { animation: look-anim 2.6s ease-in-out forwards; }
+    @keyframes look-anim {
+      0%, 12%     { transform: translateX(0); }
+      28%, 44%    { transform: translateX(-6px); }
+      56%, 70%    { transform: translateX(0); }
+      82%, 92%    { transform: translateX(6px); }
+      100%        { transform: translateX(0); }
+    }
+
+    /* Jump — lift, hang, land with small bounce */
+    #mascot-svg.jump #m-mascot { animation: jump-anim 1.1s cubic-bezier(.2,0,.3,1) forwards; }
+    @keyframes jump-anim {
+      0%   { transform: translateY(0); }
+      28%  { transform: translateY(-22px); }
+      55%  { transform: translateY(-20px); }
+      78%  { transform: translateY(5px); }
+      90%  { transform: translateY(-2px); }
+      100% { transform: translateY(0); }
+    }
+
+    /* Wave — right antenna bobs up/down 6 times */
+    #mascot-svg.wave #m-antenna-r {
+      animation: wave-anim 0.3s ease-in-out 6 alternate;
+      transform-box: fill-box;
+      transform-origin: center bottom;
+    }
+    @keyframes wave-anim {
+      from { transform: translateY(0); }
+      to   { transform: translateY(-9px); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- brand -->
+  <div class="brand">
+    <div class="brand-name"><span class="star">✦</span> friday</div>
+    <div class="brand-sub">an AI coding assistant that lives in your terminal.</div>
+  </div>
+
+  <!-- terminal window -->
+  <div class="terminal">
+
+    <!-- header bar -->
+    <div class="t-header">
+      <span class="t-header-left">✦ Friday<span class="ver">v0.1.0</span></span>
+      <span class="t-header-right">gpt-4o-mini&nbsp;&nbsp;<span class="dot">◆</span>&nbsp;chat</span>
+    </div>
+
+    <!-- messages -->
+    <div class="t-body">
+
+      <div class="msg">
+        <div class="msg-label ai">✦ Friday</div>
+        <div class="msg-text">Hey — what are we building today?</div>
+      </div>
+
+      <div class="msg">
+        <div class="msg-label user">● You</div>
+        <div class="msg-text">write a rust fn to reverse a string without allocating until the end</div>
+      </div>
+
+      <div class="msg">
+        <div class="msg-label ai">✦ Friday</div>
+        <div class="msg-text">Here's a clean implementation using iterator chaining:</div>
+        <div class="code-block"><span class="kw">fn</span> <span class="fn">reverse</span>(<span class="pn">s:</span> <span class="rx">&amp;</span><span class="ty">str</span><span class="pn">)</span> <span class="pn">-&gt;</span> <span class="ty">String</span> <span class="pn">{</span>
+    s<span class="pn">.</span><span class="fn">chars</span><span class="pn">().</span><span class="fn">rev</span><span class="pn">().</span><span class="fn">collect</span><span class="pn">()</span>
+<span class="pn">}</span></div>
+        <div class="msg-text msg-muted">No allocation until <span style="color:var(--amber)">collect()</span> — the iterator is lazy end-to-end.</div>
+      </div>
+
+    </div>
+
+    <!-- input -->
+    <div class="t-input-wrap">
+      <div class="t-input">
+        <span class="mode-label">[<span class="m">chat</span>]</span>
+        <span class="placeholder">Ask anything or type /</span>
+        <span class="cursor"></span>
+      </div>
+    </div>
+
+    <!-- hints -->
+    <div class="t-hints">
+      <span>[<span class="k">shift+tab</span>] mode</span>
+      <span>[<span class="k">↑↓</span>] scroll</span>
+      <span>[<span class="k">/</span>] commands</span>
+      <span>[<span class="k">esc</span>] quit</span>
+    </div>
+
+  </div>
+
+  <!-- install -->
+  <div class="install">
+    <div class="install-label">install</div>
+    <div class="install-row">
+      <span class="ps">$</span>
+      <span class="cmd">cargo install friday</span>
+      <button
+        class="copy"
+        onclick="
+          navigator.clipboard.writeText('cargo install friday');
+          this.textContent = 'copied!';
+          setTimeout(() => this.textContent = 'copy', 1500);
+        "
+      >copy</button>
+    </div>
+  </div>
+
+  <!-- links -->
+  <div class="links">
+    <a href="#">github</a>
+    <a href="#">docs</a>
+    <a href="#">changelog</a>
+  </div>
+
+  <!-- mascot — SVG pixel grid so blocks tile seamlessly (no font-gap issues) -->
+  <!--
+    Grid: 10 cols × 6 rows, each cell = 8×16px → SVG 80×96
+    Mascot source (from TUI):
+      "  ▄▄  ▄▄  "   row 0: ▄ at cols 2,3 and 6,7  (bottom-half block)
+      " ████████ "   row 1: █ at cols 1-8
+      " █ ▄  ▄ █ "   row 2: █ at 1,8  · eyes (▄) at 3,6
+      " ████████ "   row 3: █ at cols 1-8
+      "  █    █  "   row 4: █ at cols 2,7
+      "  █    █  "   row 5: █ at cols 2,7
+  -->
+  <div class="mascot-section">
+    <div class="mascot-wrap">
+      <svg id="mascot-svg" viewBox="0 0 80 96" width="68" height="82"
+           xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g id="m-mascot" fill="#E6AA50">
+          <g id="m-upper">
+            <!-- antennas -->
+            <g id="m-antenna-l">
+              <rect x="16" y="8" width="8" height="8"/>
+              <rect x="24" y="8" width="8" height="8"/>
+            </g>
+            <g id="m-antenna-r">
+              <rect x="48" y="8" width="8" height="8"/>
+              <rect x="56" y="8" width="8" height="8"/>
+            </g>
+            <!-- head top (row 1, cols 1-8) -->
+            <rect x="8"  y="16" width="64" height="16"/>
+            <!-- face side pillars (row 2, cols 1 and 8) -->
+            <rect x="8"  y="32" width="8"  height="16"/>
+            <rect x="64" y="32" width="8"  height="16"/>
+            <!-- eyes (row 2 bottom-half, cols 3 and 6) -->
+            <g id="m-eyes">
+              <rect id="eye-l" x="24" y="40" width="8" height="8"/>
+              <rect id="eye-r" x="48" y="40" width="8" height="8"/>
+            </g>
+            <!-- chest (row 3, cols 1-8) -->
+            <rect x="8"  y="48" width="64" height="16"/>
+          </g>
+          <!-- legs (rows 4-5, col 2 and col 7) -->
+          <g id="m-leg-l">
+            <rect x="16" y="64" width="8" height="16"/>
+            <rect x="16" y="80" width="8" height="16"/>
+          </g>
+          <g id="m-leg-r">
+            <rect x="56" y="64" width="8" height="16"/>
+            <rect x="56" y="80" width="8" height="16"/>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div class="mascot-label">say hi ✦</div>
+  </div>
+
+  <script>
+    const svg  = document.getElementById('mascot-svg');
+    const eyeL = document.getElementById('eye-l');
+    const eyeR = document.getElementById('eye-r');
+
+    // ── Blink (independent of action state) ──────────────
+    function doBlink() {
+      eyeL.setAttribute('y', '43'); eyeL.setAttribute('height', '2');
+      eyeR.setAttribute('y', '43'); eyeR.setAttribute('height', '2');
+      setTimeout(() => {
+        eyeL.setAttribute('y', '40'); eyeL.setAttribute('height', '8');
+        eyeR.setAttribute('y', '40'); eyeR.setAttribute('height', '8');
+        setTimeout(doBlink, 2200 + Math.random() * 2800);
+      }, 130);
+    }
+    setTimeout(doBlink, 1600);
+
+    // ── Action state machine ──────────────────────────────
+    // Each action maps to a CSS class + its play duration.
+    // After each action finishes, idle for a random pause, then pick again.
+    const actions   = ['walk', 'look', 'jump', 'wave'];
+    const durations = { walk: 3200, look: 2800, jump: 1300, wave: 2000 };
+
+    function runCycle() {
+      const idleMs = 2800 + Math.random() * 4200;
+      setTimeout(() => {
+        const action = actions[Math.floor(Math.random() * actions.length)];
+        svg.classList.add(action);
+        setTimeout(() => {
+          svg.classList.remove(action);
+          runCycle();
+        }, durations[action]);
+      }, idleMs);
+    }
+
+    // Start first cycle after a brief settle
+    setTimeout(runCycle, 1200);
+  </script>
+
+</body>
+</html>

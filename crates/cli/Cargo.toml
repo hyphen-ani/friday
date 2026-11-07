@@ -13,6 +13,9 @@ ratatui = "0.29"
 crossterm = "0.28"
 
 futures = "0.3"
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 runtime = { path = "../runtime" }
 tools = { path = "../tools" }

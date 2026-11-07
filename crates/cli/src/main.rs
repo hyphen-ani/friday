@@ -4,6 +4,8 @@ mod events;
 mod runtime_events;
 mod markdown;
 mod models;
+mod shortcuts;
+mod ollama;
 
 use std::io;
 use std::sync::{Arc, RwLock};
@@ -11,6 +13,7 @@ use app::App;
 use runtime::Runtime;
 use providers::openai::OpenAIProvider;
 use config::Config;
+use models::MODELS;
 
 use crossterm::{
     execute,
@@ -31,15 +34,28 @@ use ratatui::{
 async fn main() -> anyhow::Result<()> {
     let cfg = Config::load().unwrap_or_default();
 
-    let api_key = cfg.resolve_api_key().unwrap_or_else(|e| {
-        eprintln!("friday: {}", e);
-        std::process::exit(1);
-    });
+    // Determine the starting model and its provider info
+    let start_model = cfg.model.clone();
+    let preset = MODELS.iter().find(|m| m.id == start_model);
+    let start_provider = preset.map(|p| p.provider).unwrap_or("OpenAI");
+    let start_base_url = preset
+        .map(|p| p.base_url)
+        .unwrap_or("https://api.openai.com/v1")
+        .to_string();
 
-    // Shared model string — app and provider both hold a clone of this Arc
-    let current_model: Arc<RwLock<String>> = Arc::new(RwLock::new(cfg.model.clone()));
+    let start_api_key = cfg.key_for_provider(start_provider).unwrap_or_default();
+    let missing_key   = start_api_key.is_empty();
 
-    let provider = OpenAIProvider::new(api_key, Arc::clone(&current_model));
+    // Shared live state — provider and app both hold clones of these Arcs
+    let current_model:    Arc<RwLock<String>> = Arc::new(RwLock::new(start_model));
+    let current_api_key:  Arc<RwLock<String>> = Arc::new(RwLock::new(start_api_key));
+    let current_base_url: Arc<RwLock<String>> = Arc::new(RwLock::new(start_base_url));
+
+    let provider = OpenAIProvider::new(
+        Arc::clone(&current_api_key),
+        Arc::clone(&current_model),
+        Arc::clone(&current_base_url),
+    );
     let runtime = Arc::new(Runtime::new(Box::new(provider)));
 
     enable_raw_mode()?;
@@ -48,7 +64,25 @@ async fn main() -> anyhow::Result<()> {
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let mut app = App::new(Arc::clone(&current_model));
+    let mut app = App::new(
+        Arc::clone(&current_model),
+        Arc::clone(&current_api_key),
+        Arc::clone(&current_base_url),
+    );
+
+    if missing_key {
+        let env_hint = preset.map(|p| p.env_var).unwrap_or("OPENAI_API_KEY");
+        app.messages.push(app::ChatMessage {
+            role: app::MessageRole::System,
+            content: format!(
+                "No API key for {} — type /keys to add one, or set the {} env var",
+                start_provider, env_hint
+            ),
+        });
+    }
+
+    // Pre-populate local models before the first draw (Ollama is local — instant or <50ms)
+    app.local_models = ollama::discover().await;
 
     loop {
         app.process_runtime_events();

@@ -5,9 +5,9 @@ use ratatui::{
 };
 
 use crate::app::{App, MessageRole, COMMANDS};
-use crate::models::MODELS;
+use crate::models::{MODELS, unique_providers};
 
-const ACCENT: Color = Color::Rgb(163, 230, 53);
+const ACCENT: Color = Color::Rgb(230, 170, 80);
 const MUTED:  Color = Color::DarkGray;
 const TEXT:   Color = Color::White;
 const DIM:    Color = Color::Rgb(100, 100, 100);
@@ -42,6 +42,14 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     if app.model_picker_open {
         render_model_picker(frame, app, layout[3]);
+    }
+
+    if app.keys_panel_open {
+        render_keys_panel(frame, app, layout[3]);
+    }
+
+    if app.key_input_open {
+        render_key_input(frame, app, layout[3]);
     }
 
     if app.confirm_quit {
@@ -309,16 +317,19 @@ fn render_command_palette(frame: &mut Frame, app: &App, input_area: Rect) {
     let popup_height = (app.filtered_commands.len().min(8) as u16) + 2;
     let popup_y = input_area.y.saturating_sub(popup_height);
     let popup_width = 62u16.min(input_area.width.saturating_sub(2));
+    let popup_rect = Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height };
 
+    frame.render_widget(Clear, popup_rect);
     frame.render_widget(
         Paragraph::new(suggestions).block(
             Block::default()
                 .title(Span::styled(" friday commands ", Style::default().fg(MUTED)))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(MUTED)),
+                .border_style(Style::default().fg(MUTED))
+                .style(Style::default().bg(Color::Rgb(16, 16, 16))),
         ),
-        Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height },
+        popup_rect,
     );
 }
 
@@ -349,20 +360,17 @@ fn render_hints(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
-    const ID_COL: usize  = 30;
-    const PRV_COL: usize = 10;
+    const ID_COL: usize = 28;
 
     let current_id = app.current_model.read().unwrap().clone();
-
-    // Group header rows + model rows into a flat list, tracking which indices are selectable
     let mut rows: Vec<Line> = vec![];
     let mut last_provider = "";
+    let mut selected_visual_row: u16 = 0;
 
+    // ── Cloud models ──────────────────────────────────────────────────────────
     for (i, m) in MODELS.iter().enumerate() {
         if m.provider != last_provider {
-            if !rows.is_empty() {
-                rows.push(Line::from(""));
-            }
+            if !rows.is_empty() { rows.push(Line::from("")); }
             rows.push(Line::from(Span::styled(
                 format!("  {}", m.provider),
                 Style::default().fg(DIM).add_modifier(Modifier::BOLD),
@@ -370,48 +378,111 @@ fn render_model_picker(frame: &mut Frame, app: &App, input_area: Rect) {
             last_provider = m.provider;
         }
 
+        if i == app.model_picker_selected {
+            selected_visual_row = rows.len() as u16;
+        }
+
         let is_selected = i == app.model_picker_selected;
         let is_active   = m.id == current_id;
+        let marker      = if is_active { "✦ " } else if is_selected { "› " } else { "  " };
+        let id_padded   = format!("{:<width$}", m.id,    width = ID_COL);
+        let lbl_padded  = format!("{:<10}", m.label);
 
-        let marker = if is_active { "✦ " } else if is_selected { "› " } else { "  " };
-        let id_padded  = format!("{:<width$}", m.id,    width = ID_COL);
-        let prv_padded = format!("{:<width$}", m.label, width = PRV_COL);
-
-        let row = if is_selected {
+        rows.push(if is_selected {
             Line::from(vec![
                 Span::styled(marker,     Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
                 Span::styled(id_padded,  Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                Span::styled(prv_padded, Style::default().fg(TEXT)),
+                Span::styled(lbl_padded, Style::default().fg(TEXT)),
             ])
         } else if is_active {
             Line::from(vec![
                 Span::styled(marker,     Style::default().fg(ACCENT)),
                 Span::styled(id_padded,  Style::default().fg(TEXT)),
-                Span::styled(prv_padded, Style::default().fg(MUTED)),
+                Span::styled(lbl_padded, Style::default().fg(MUTED)),
             ])
         } else {
             Line::from(vec![
                 Span::raw(marker),
                 Span::styled(id_padded,  Style::default().fg(MUTED)),
-                Span::styled(prv_padded, Style::default().fg(DIM)),
+                Span::styled(lbl_padded, Style::default().fg(DIM)),
             ])
-        };
-        rows.push(row);
+        });
     }
 
-    let popup_height = (rows.len().min(16) as u16) + 2;
-    let popup_y = input_area.y.saturating_sub(popup_height);
-    let popup_width = 56u16.min(input_area.width.saturating_sub(2));
+    // ── Local Ollama models ───────────────────────────────────────────────────
+    rows.push(Line::from(""));
+    if !app.local_models.is_empty() {
+        rows.push(Line::from(Span::styled(
+            "  Local (Ollama)",
+            Style::default().fg(DIM).add_modifier(Modifier::BOLD),
+        )));
+        for (j, name) in app.local_models.iter().enumerate() {
+            let idx = MODELS.len() + j;
 
+            if idx == app.model_picker_selected {
+                selected_visual_row = rows.len() as u16;
+            }
+
+            let is_selected = idx == app.model_picker_selected;
+            let is_active   = *name == current_id;
+            let marker      = if is_active { "✦ " } else if is_selected { "› " } else { "  " };
+            let id_padded   = format!("{:<width$}", name, width = ID_COL);
+
+            rows.push(if is_selected {
+                Line::from(vec![
+                    Span::styled(marker,    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                    Span::styled(id_padded, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                    Span::styled("local",   Style::default().fg(TEXT)),
+                ])
+            } else if is_active {
+                Line::from(vec![
+                    Span::styled(marker,    Style::default().fg(ACCENT)),
+                    Span::styled(id_padded, Style::default().fg(TEXT)),
+                    Span::styled("local",   Style::default().fg(MUTED)),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::raw(marker),
+                    Span::styled(id_padded, Style::default().fg(MUTED)),
+                    Span::styled("local",   Style::default().fg(DIM)),
+                ])
+            });
+        }
+    } else {
+        rows.push(Line::from(Span::styled(
+            "  Local (Ollama not detected)",
+            Style::default().fg(DIM),
+        )));
+    }
+
+    // Cap popup to available space above the input box (minus 2 for borders)
+    let available    = input_area.y.saturating_sub(2);
+    let visible_rows = (available as usize).min(rows.len());
+    let popup_height = visible_rows as u16 + 2;
+    let popup_y      = input_area.y.saturating_sub(popup_height);
+    let popup_width  = 58u16.min(input_area.width.saturating_sub(2));
+    let popup_rect   = Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height };
+
+    // Scroll so the selected row is always visible
+    let scroll: u16 = if selected_visual_row >= visible_rows as u16 {
+        selected_visual_row.saturating_sub(visible_rows as u16 - 1)
+    } else {
+        0
+    };
+
+    frame.render_widget(Clear, popup_rect);
     frame.render_widget(
-        Paragraph::new(rows).block(
-            Block::default()
-                .title(Span::styled(" switch model ", Style::default().fg(MUTED)))
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(ACCENT)),
-        ),
-        Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height },
+        Paragraph::new(rows)
+            .scroll((scroll, 0))
+            .block(
+                Block::default()
+                    .title(Span::styled(" switch model ", Style::default().fg(MUTED)))
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(ACCENT))
+                    .style(Style::default().bg(Color::Rgb(16, 16, 16))),
+            ),
+        popup_rect,
     );
 }
 
@@ -491,4 +562,133 @@ fn render_quit_confirm(frame: &mut Frame, area: Rect) {
             ),
         popup,
     );
+}
+
+/// /keys panel — lists all providers with key status; Enter opens the key-input overlay.
+fn render_keys_panel(frame: &mut Frame, app: &App, input_area: Rect) {
+    let cfg = config::Config::load().unwrap_or_default();
+    let providers = unique_providers();
+
+    let mut rows: Vec<Line> = vec![];
+
+    for (i, p) in providers.iter().enumerate() {
+        let is_selected = i == app.keys_panel_selected;
+        let stored = cfg.key_for_provider(p.provider);
+
+        let (indicator, key_preview) = match &stored {
+            Some(k) => {
+                let tail = if k.len() > 4 { &k[k.len() - 4..] } else { k };
+                let dots = "●";
+                (dots, format!("···{}", tail))
+            }
+            None => ("○", "not set".to_string()),
+        };
+
+        let ind_style = if stored.is_some() {
+            Style::default().fg(ACCENT)
+        } else {
+            Style::default().fg(DIM)
+        };
+        let key_style = if stored.is_some() {
+            Style::default().fg(MUTED)
+        } else {
+            Style::default().fg(DIM)
+        };
+
+        let marker = if is_selected { "› " } else { "  " };
+        let name_padded = format!("{:<12}", p.provider);
+        let ind_padded  = format!("{:<2}", indicator);
+
+        let row = if is_selected {
+            Line::from(vec![
+                Span::styled(marker,       Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled(name_padded,  Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled(ind_padded,   ind_style.add_modifier(Modifier::BOLD)),
+                Span::styled(key_preview,  Style::default().fg(TEXT)),
+            ])
+        } else {
+            Line::from(vec![
+                Span::raw(marker),
+                Span::styled(name_padded, Style::default().fg(MUTED)),
+                Span::styled(ind_padded,  ind_style),
+                Span::styled(key_preview, key_style),
+            ])
+        };
+        rows.push(row);
+    }
+
+    let popup_height = (providers.len() as u16) + 2;
+    let popup_y      = input_area.y.saturating_sub(popup_height);
+    let popup_width  = 46u16.min(input_area.width.saturating_sub(2));
+    let popup_rect   = Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height };
+
+    frame.render_widget(Clear, popup_rect);
+    frame.render_widget(
+        Paragraph::new(rows).block(
+            Block::default()
+                .title(Span::styled(" manage API keys ", Style::default().fg(MUTED)))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(ACCENT))
+                .style(Style::default().bg(Color::Rgb(16, 16, 16))),
+        ),
+        popup_rect,
+    );
+}
+
+/// Inline API-key input overlay — shown when switching to a provider with no stored key,
+/// or when editing a key from the /keys panel.
+fn render_key_input(frame: &mut Frame, app: &App, input_area: Rect) {
+    let title = format!(" API key for {} ", app.key_input_provider);
+    let hint   = format!("or set {} env var", app.key_input_env_hint);
+
+    // Mask all but the last 4 typed characters
+    let display = if app.key_input_value.is_empty() {
+        String::new()
+    } else {
+        let chars: Vec<char> = app.key_input_value.chars().collect();
+        let visible = 4.min(chars.len());
+        let masked  = chars.len().saturating_sub(visible);
+        format!("{}{}", "•".repeat(masked), &chars[masked..].iter().collect::<String>())
+    };
+
+    let content = vec![
+        Line::from(vec![
+            Span::styled(" ", Style::default()),
+            Span::styled(&display, Style::default().fg(ACCENT)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("  {} ", hint), Style::default().fg(DIM)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter ", Style::default().fg(MUTED)),
+            Span::styled("save · ", Style::default().fg(DIM)),
+            Span::styled("Esc ", Style::default().fg(MUTED)),
+            Span::styled("cancel", Style::default().fg(DIM)),
+        ]),
+    ];
+
+    let popup_height = 6u16;
+    let popup_y      = input_area.y.saturating_sub(popup_height);
+    let popup_width  = 54u16.min(input_area.width.saturating_sub(2));
+    let popup_rect   = Rect { x: input_area.x + 1, y: popup_y, width: popup_width, height: popup_height };
+
+    frame.render_widget(Clear, popup_rect);
+    frame.render_widget(
+        Paragraph::new(content).block(
+            Block::default()
+                .title(Span::styled(title, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(ACCENT))
+                .style(Style::default().bg(Color::Rgb(16, 16, 16))),
+        ),
+        popup_rect,
+    );
+
+    // Position cursor at end of masked input line
+    let cursor_x = popup_rect.x + 1 + display.chars().count() as u16 + 1;
+    let cursor_y = popup_rect.y + 1;
+    frame.set_cursor_position((cursor_x.min(popup_rect.x + popup_rect.width - 2), cursor_y));
 }

@@ -45,6 +45,7 @@ pub const COMMANDS: &[Command] = &[
     Command { name: "/help",    description: "Show available commands and shortcuts" },
     Command { name: "/clear",   description: "Clear the conversation history" },
     Command { name: "/model",   description: "Switch the active AI model" },
+    Command { name: "/keys",    description: "Manage API keys for each provider" },
     Command { name: "/tools",   description: "List available tools" },
     Command { name: "/session", description: "Show current session info" },
     Command { name: "/theme",   description: "Change the color theme" },
@@ -76,17 +77,40 @@ pub struct App {
     pub provider_history: Vec<ProviderMessage>,
     pub filtered_commands: Vec<usize>,
     pub selected_command: usize,
-    // Shared model string — same Arc is held by the provider
-    pub current_model: Arc<RwLock<String>>,
-    // Model picker state
-    pub model_picker_open: bool,
+
+    // Shared live state — same Arcs held by the provider
+    pub current_model:    Arc<RwLock<String>>,
+    pub current_api_key:  Arc<RwLock<String>>,
+    pub current_base_url: Arc<RwLock<String>>,
+
+    // Model picker
+    pub model_picker_open:     bool,
     pub model_picker_selected: usize,
+
+    // Inline API-key prompt (shown when switching to a provider with no stored key)
+    pub key_input_open:          bool,
+    pub key_input_provider:      String,
+    pub key_input_value:         String,
+    pub key_input_env_hint:      String,  // e.g. "ANTHROPIC_API_KEY"
+    pub pending_model_switch:    Option<usize>,  // MODELS index waiting for key
+
+    // /keys management panel
+    pub keys_panel_open:     bool,
+    pub keys_panel_selected: usize,
+
+    // Local Ollama models discovered at runtime
+    pub local_models: Vec<String>,
+
     pub event_tx: UnboundedSender<RuntimeEvent>,
     pub event_rx: UnboundedReceiver<RuntimeEvent>,
 }
 
 impl App {
-    pub fn new(current_model: Arc<RwLock<String>>) -> Self {
+    pub fn new(
+        current_model:    Arc<RwLock<String>>,
+        current_api_key:  Arc<RwLock<String>>,
+        current_base_url: Arc<RwLock<String>>,
+    ) -> Self {
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
         Self {
@@ -107,8 +131,18 @@ impl App {
             filtered_commands: vec![],
             selected_command: 0,
             current_model,
+            current_api_key,
+            current_base_url,
             model_picker_open: false,
             model_picker_selected: 0,
+            key_input_open: false,
+            key_input_provider: String::new(),
+            key_input_value: String::new(),
+            key_input_env_hint: String::new(),
+            pending_model_switch: None,
+            keys_panel_open: false,
+            keys_panel_selected: 0,
+            local_models: vec![],
             event_tx,
             event_rx,
         }
@@ -179,7 +213,6 @@ impl App {
                 }
 
                 RuntimeEvent::ToolCallFinished { name, result } => {
-                    // Replace the pending "running…" message with the result preview
                     let preview: String = result.lines().take(4).collect::<Vec<_>>().join("\n");
                     if let Some(last) = self.messages.last_mut() {
                         if last.content == format!("⚙  running {}…", name) {
@@ -203,6 +236,10 @@ impl App {
                         role: MessageRole::System,
                         content: format!("Error: {}", err),
                     });
+                }
+
+                RuntimeEvent::LocalModels(models) => {
+                    self.local_models = models;
                 }
             }
         }

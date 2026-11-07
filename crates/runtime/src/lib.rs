@@ -19,6 +19,8 @@ pub enum RuntimeEvent {
     /// Full provider-format history after all tool loops, for the CLI to store.
     HistorySnapshot(Vec<ProviderMessage>),
     Error(String),
+    /// Ollama local model discovery result (empty vec = Ollama not running).
+    LocalModels(Vec<String>),
 }
 
 pub struct Runtime {
